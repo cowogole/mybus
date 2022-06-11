@@ -1,136 +1,151 @@
 <template>
-  <v-container>
-    <v-row class="text-center">
-      <v-col cols="12">
-        <v-img
-          :src="require('../assets/logo.svg')"
-          class="my-3"
-          contain
-          height="200"
-        />
-      </v-col>
+  <v-container fluid>
+    <v-card class="d-flex justify-center mb-0" elevation="0" tile>
+      <v-card class="pa-2 ma-2" tile elevation="0">
+        <v-text-field
+          id="textField"
+          label="Search bus stops"
+          solo
+          prepend-icon="mdi-map-marker"
+          v-model="address"
+          @input="debouncedHandler"
+        ></v-text-field>
+      </v-card>
+    </v-card>
 
-      <v-col class="mb-4">
-        <h1 class="display-2 font-weight-bold mb-3">
-          {{ testMsg }}
-        </h1>
-
-        <p class="subheading font-weight-regular">
-          For help and collaboration with other Vuetify developers,
-          <br />please join our online
-          <a href="https://community.vuetifyjs.com" target="_blank"
-            >Discord Community</a
-          >
-        </p>
-      </v-col>
-
-      <v-col class="mb-5" cols="12">
-        <h2 class="headline font-weight-bold mb-3">What's next?</h2>
-
-        <v-row justify="center">
-          <a
-            v-for="(next, i) in whatsNext"
-            :key="i"
-            :href="next.href"
-            class="subheading mx-3"
-            target="_blank"
-          >
-            {{ next.text }}
-          </a>
+    <v-card
+      class="d-flex justify-center mb-1"
+      elevation="0"
+      v-for="staion in stationsList"
+      :key="staion.gtfsId"
+      tile
+    >
+      <v-card
+        color="#26c6da"
+        dark
+        flat
+        class="ml-4"
+        width="400"
+        @click.stop="popUpDia(staion.gtfsId)"
+      >
+        <v-row>
+          <v-col>
+            <v-card-title>
+              <v-icon large left> mdi-sign-caution </v-icon>
+              <span class="text-h6 font-weight-light">
+                {{ staion.name }}
+              </span>
+            </v-card-title>
+          </v-col>
         </v-row>
-      </v-col>
+      </v-card>
+    </v-card>
 
-      <v-col class="mb-5" cols="12">
-        <h2 class="headline font-weight-bold mb-3">Important Links</h2>
+    <v-overlay :value="overlay">
+      <v-progress-circular indeterminate size="64"></v-progress-circular>
+    </v-overlay>
 
-        <v-row justify="center">
-          <a
-            v-for="(link, i) in importantLinks"
-            :key="i"
-            :href="link.href"
-            class="subheading mx-3"
-            target="_blank"
-          >
-            {{ link.text }}
-          </a>
-        </v-row>
-      </v-col>
-
-      <v-col class="mb-5" cols="12">
-        <h2 class="headline font-weight-bold mb-3">Ecosystem</h2>
-
-        <v-row justify="center">
-          <a
-            v-for="(eco, i) in ecosystem"
-            :key="i"
-            :href="eco.href"
-            class="subheading mx-3"
-            target="_blank"
-          >
-            {{ eco.text }}
-          </a>
-        </v-row>
-      </v-col>
-    </v-row>
+    <StopView
+      v-if="showStops"
+      v-model="showStops"
+      :currentRecord="stopInfo"
+      width="600px"
+    />
   </v-container>
 </template>
 
 <script>
+import gql from "graphql-tag";
+import debounce from "lodash.debounce";
+import StopView from "./StopView.vue";
+import { getStopData } from "@/util/gqlfunctions.js";
+
+const stationsListGql = gql`
+  query stops($name: String!) {
+    stops(name: $name) {
+      gtfsId
+      name
+      code
+      lat
+      lon
+    }
+  }
+`;
+
 export default {
   name: "HelloWorld",
+  components: {
+    StopView,
+  },
+  data() {
+    return {
+      stationsList: [],
+      stopInfo: [],
+      address: "", //"eg. Innopoli",
+      showStops: false, //switch for displaying StopView components
+      overlay: false, // show Loading, to prevent user action while loading data
+    };
+  },
 
-  data: () => ({
-    testMsg: "nice",
-    ecosystem: [
-      {
-        text: "vuetify-loader",
-        href: "https://github.com/vuetifyjs/vuetify-loader",
-      },
-      {
-        text: "github",
-        href: "https://github.com/vuetifyjs/vuetify",
-      },
-      {
-        text: "awesome-vuetify",
-        href: "https://github.com/vuetifyjs/awesome-vuetify",
-      },
-    ],
-    importantLinks: [
-      {
-        text: "Documentation",
-        href: "https://vuetifyjs.com",
-      },
-      {
-        text: "Chat",
-        href: "https://community.vuetifyjs.com",
-      },
-      {
-        text: "Made with Vuetify",
-        href: "https://madewithvuejs.com/vuetify",
-      },
-      {
-        text: "Twitter",
-        href: "https://twitter.com/vuetifyjs",
-      },
-      {
-        text: "Articles",
-        href: "https://medium.com/vuetify",
-      },
-    ],
-    whatsNext: [
-      {
-        text: "Explore components",
-        href: "https://vuetifyjs.com/components/api-explorer",
-      },
-      {
-        text: "Select a layout",
-        href: "https://vuetifyjs.com/getting-started/pre-made-layouts",
-      },
-      {
-        text: "Frequently Asked Questions",
-        href: "https://vuetifyjs.com/getting-started/frequently-asked-questions",
-      },
-    ],
-  }),
+  methods: {
+    /**
+     * @description fetch data via apollo & present on UI
+     * @param name stop name from text field, user input
+     */
+    async getData() {
+      const list = await this.$apollo.query({
+        query: stationsListGql,
+        variables: {
+          name: this.address,
+        },
+      });
+      //TODO deal with error or null res
+      this.stationsList = [].concat(list.data.stops);
+      console.log(this.stationsList);
+    },
+
+    /**
+     * @description get and show stop and route info
+     * @param {*} id
+     */
+    async popUpDia(id) {
+      this.overlay = true;
+      getStopData(id).then((res) => {
+        //TODO deal with error or null res
+        this.stopInfo = [].concat(res.data.stop);
+        console.log(this.stopInfo);
+        this.showStops = true;
+      });
+      this.overlay = false;
+      this.showStops = true;
+    },
+  },
+
+  /**
+   * @description use loadsh to prevent frequent database queries during user input.
+   */
+  created() {
+    this.debouncedHandler = debounce(() => {
+      console.log("New value:", this.address);
+      if (this.address !== "") {
+        this.getData();
+      } else {
+        this.stationsList = [];
+      }
+    }, 500);
+  },
+
+  /**
+   * @description remove loadsh before unmount.
+   */
+  beforeUnmount() {
+    this.debouncedHandler.cancel();
+  },
 };
 </script>
+
+<style scoped>
+.v-text-field {
+  width: 400px;
+}
+</style>
